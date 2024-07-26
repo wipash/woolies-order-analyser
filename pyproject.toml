@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "woolworths"
-version = "0.1.0"
-description = ""
+name = "woolies-order-analyser"
+version = "1.0.0"
+description = "Gain insights into your Woolworths shopping habits"
 authors = ["Sean McGrath <sean@mcgrath.net.nz>"]
 readme = "README.md"
 
@@ -12,6 +12,11 @@ streamlit = "^1.37.0"
 pandas = "^2.2.2"
 numpy = "^2.0.1"
 plotly = "^5.23.0"
+pymupdf = "^1.24.9"
+ipykernel = "^6.29.5"
+openai = "^1.37.1"
+python-dotenv = "^1.0.1"
+pillow = "^10.4.0"
 
 
 [build-system]

@@ -1,0 +1,25 @@
+{
+    "python.analysis.typeCheckingMode": "standard",
+    "python.terminal.activateEnvironment": true,
+    "python.terminal.activateEnvInCurrentTerminal": true,
+    "[python]": {
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.formatOnSave": true,
+        "editor.formatOnSaveMode": "file",
+        "editor.codeActionsOnSave": {
+            "source.organizeImports.ruff": "always",
+            "source.fixAll.ruff": "always"
+        }
+    },
+    "editor.tabSize": 4,
+    "editor.detectIndentation": true,
+    "editor.insertSpaces": true,
+    // The closest to en-NZ
+    "cSpell.language": "en-GB",
+    // words - list of words to be always considered correct
+    // keep these in alphabetical order so words are easy to find
+    "cSpell.allowCompoundWords": true,
+    "python.testing.pytestArgs": [],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true,
+}
