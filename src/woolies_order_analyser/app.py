@@ -194,7 +194,7 @@ def extract_data_from_pdf_uncached(pdf_content: bytes) -> list[OrderItem]:
 
     completion: ChatCompletion = client.chat.completions.create(
         messages=[system_message, user_message],
-        model="gpt-4-vision-preview",
+        model="gpt-4o",
         response_format={"type": "json_object"},
         max_tokens=4000,
     )
