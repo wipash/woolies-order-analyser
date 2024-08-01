@@ -202,9 +202,9 @@ def extract_data_from_pdf_uncached(pdf_content: bytes) -> list[OrderItem]:
         content = completion.choices[0].message.content
         try:
             return cast(list[OrderItem], json.loads(content)["items"])
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError) as e:
             msg = "Failed to parse the API response"
-            raise ValueError(msg) from None
+            raise ValueError(msg) from e
     else:
         msg = "No content in the API response"
         raise ValueError(msg)
