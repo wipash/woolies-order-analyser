@@ -16,12 +16,14 @@ import pymupdf
 import requests
 import streamlit as st
 from langfuse.openai import OpenAI
+from openai.types.chat import (
+    ChatCompletionContentPartImageParam,
+)
 from plotly.graph_objs import Figure
 
 if TYPE_CHECKING:
     from openai.types.chat import (
         ChatCompletion,
-        ChatCompletionContentPartImageParam,
         ChatCompletionSystemMessageParam,
         ChatCompletionUserMessageParam,
     )
@@ -123,91 +125,90 @@ def image_to_base64(image: bytes) -> str:
     return base64.b64encode(image).decode()
 
 
-def extract_data_from_pdf_uncached(pdf_content: bytes) -> list[OrderItem]:
+def extract_data_from_pdf_uncached(pdf_content: bytes, pages_per_batch: int = 2) -> list[OrderItem]:
     pdf = pymupdf.Document(stream=pdf_content)
     matrix = pymupdf.Matrix(90 / 72, 90 / 72)
 
-    images = [pymupdf.utils.get_pixmap(page, matrix=matrix).tobytes(output="png") for page in pdf]
-    images_base64 = [image_to_base64(pix) for pix in images]
+    all_items: list[OrderItem] = []
 
-    image_messages: list[ChatCompletionContentPartImageParam] = [
-        {
-            "type": "image_url",
-            "image_url": {"url": f"data:image/png;base64,{image}"},
+    def process_batch(image_messages: list[ChatCompletionContentPartImageParam]) -> list[OrderItem]:
+        system_message: ChatCompletionSystemMessageParam = {
+            "role": "system",
+            "content": """Please extract the items from this invoice. Reply with a list of JSON objects with the following keys:
+            - desc: the description of the item
+            - sup: the quantity supplied of the item (prefer 'ea' units if multiple units are present)
+            - price: the unit price of the item (prefer 'ea' units if multiple units are present)
+            - amount: the total cost of the item
+            - cat: the category of the item
+
+            For example:
+            {
+                'items': [
+                    {
+                        "desc": "Gopala paneer cheese 300g block",
+                        "sup": 1,
+                        "price": 6.4,
+                        "amount": 6.4,
+                        "cat": "Deli & Chilled Foods"
+                    },
+                    {
+                        "desc": "Fresh fruit bananas yellow per kg loose",
+                        "sup": 5,
+                        "price": 3.7,
+                        "amount": 3.95,
+                        "cat": "Food"
+                    }
+                ]
+            }
+            """,  # noqa: E501
         }
-        for image in images_base64
-    ]
 
-    system_message: ChatCompletionSystemMessageParam = {
-        "role": "system",
-        "content": """Please extract the items from this invoice. Reply with a list of JSON objects with the following keys:
-        - description: the description of the item
-        - ordered: the quantity ordered of the item (prefer 'ea' units if multiple units are present)
-        - ordered_unit: the unit of the quantity ordered of the item (e.g. kg, ea)
-        - supplied: the quantity supplied of the item (prefer 'ea' units if multiple units are present)
-        - supplied_unit: the unit of the quantity supplied of the item (e.g. kg, ea)
-        - unit_price: the unit price of the item (prefer 'ea' units if multiple units are present)
-        - unit_price_unit: the unit of the unit price of the item (e.g. kg, ea)
-        - amount: the total cost of the item
-        - category: the category of the item
-
-        For example:
-        {
-            'items': [
-                {
-                    "description": "Gopala paneer cheese 300g block",
-                    "ordered": 1,
-                    "ordered_unit": "ea",
-                    "supplied": 1,
-                    "supplied_unit": "ea",
-                    "unit_price": 6.4,
-                    "unit_price_unit": "ea",
-                    "amount": 6.4,
-                    "category": "Deli & Chilled Foods"
-                },
-                {
-                    "description": "Fresh fruit bananas yellow per kg loose",
-                    "ordered": 5,
-                    "ordered_unit": "ea",
-                    "supplied": 5,
-                    "supplied_unit": "ea",
-                    "unit_price": 3.7,
-                    "unit_price_unit": "kg",
-                    "amount": 3.95,
-                    "category": "Food"
-                }
-            ]
+        user_message: ChatCompletionUserMessageParam = {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": f"Here are {len(image_messages)} pages of the invoice:"},
+                *image_messages,
+            ],
         }
-        """,  # noqa: E501
-    }
 
-    user_message: ChatCompletionUserMessageParam = {
-        "role": "user",
-        "content": [
-            {"type": "text", "text": "Here are the images of the invoice:"},
-            *image_messages,
-        ],
-    }
+        client = get_openai_client()
 
-    client = get_openai_client()
+        completion: ChatCompletion = client.chat.completions.create(
+            messages=[system_message, user_message],
+            model="gpt-4o",
+            response_format={"type": "json_object"},
+            max_tokens=4000,
+        )
 
-    completion: ChatCompletion = client.chat.completions.create(
-        messages=[system_message, user_message],
-        model="gpt-4o",
-        response_format={"type": "json_object"},
-        max_tokens=4000,
-    )
+        if completion.choices and completion.choices[0].message.content:
+            content = completion.choices[0].message.content
+            try:
+                return cast(list[OrderItem], json.loads(content)["items"])
+            except (json.JSONDecodeError, KeyError) as e:
+                msg = "Failed to parse the API response"
+                raise ValueError(msg) from e
+        else:
+            msg = "No content in the API response"
+            raise ValueError(msg)
 
-    if completion.choices and completion.choices[0].message.content:
-        content = completion.choices[0].message.content
-        try:
-            return cast(list[OrderItem], json.loads(content)["items"])
-        except (json.JSONDecodeError, KeyError) as e:
-            msg = "Failed to parse the API response"
-            raise ValueError(msg) from e
-    else:
-        msg = "No content in the API response"
-        raise ValueError(msg)
+    # Process pages in batches
+    for i in range(0, pdf.page_count, pages_per_batch):
+        batch_pages = [pdf[j] for j in range(i, min(i + pages_per_batch, pdf.page_count))]
+        images = [pymupdf.utils.get_pixmap(page, matrix=matrix).tobytes(output="png") for page in batch_pages]
+        images_base64 = [image_to_base64(pix) for pix in images]
+
+        image_messages: list[ChatCompletionContentPartImageParam] = [
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/png;base64,{image}"},
+            }
+            for image in images_base64
+        ]
+
+        batch_items = process_batch(image_messages)
+        all_items.extend(batch_items)
+
+    return all_items
 
 
 def process_single_order(order: Order, invoice_content: bytes) -> list[OrderItem]:
@@ -222,11 +223,11 @@ def process_single_order(order: Order, invoice_content: bytes) -> list[OrderItem
         {
             "order_id": order["orderId"],
             "date": order["orderDate"],
-            "category": item["category"],
-            "name": item["description"],
+            "category": item["cat"],
+            "name": item["desc"],
             "total_price": float(item["amount"]) if item["amount"] else 0.0,
-            "quantity": float(item["supplied"]) if item["supplied"] else 0.0,
-            "unit_price": float(item["unit_price"]) if item["unit_price"] else 0.0,
+            "quantity": float(item["sup"]) if item["sup"] else 0.0,
+            "unit_price": float(item["price"]) if item["price"] else 0.0,
         }
         for item in invoice_items
     ]
