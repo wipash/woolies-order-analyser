@@ -419,6 +419,7 @@ def create_category_distribution_chart(df: pd.DataFrame) -> Figure:
         title="Spending Distribution by Category",
         hover_data=["total_price"],
     )
+    fig.update_traces(textinfo="label+value")
     return fig
 
 
@@ -456,6 +457,7 @@ def create_order_breakdown_chart(order_details: pd.DataFrame) -> Figure:
         names="category",
         title=f"Category Breakdown for Order {order_details['order_id'].iloc[0]}",
     )
+    fig.update_traces(textposition="inside", textinfo="percent+value")
     return fig
 
 
