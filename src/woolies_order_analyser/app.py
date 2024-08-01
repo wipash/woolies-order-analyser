@@ -15,7 +15,7 @@ import plotly.express as px
 import pymupdf
 import requests
 import streamlit as st
-from openai import OpenAI
+from langfuse.openai import OpenAI
 from plotly.graph_objs import Figure
 
 if TYPE_CHECKING:

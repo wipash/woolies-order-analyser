@@ -17,6 +17,7 @@ ipykernel = "^6.29.5"
 openai = "^1.37.1"
 python-dotenv = "^1.0.1"
 pillow = "^10.4.0"
+langfuse = "^2.40.0"
 
 
 [build-system]
