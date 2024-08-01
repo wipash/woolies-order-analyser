@@ -3,6 +3,8 @@ import calendar
 import hashlib
 import json
 import pickle
+import re
+import uuid
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
@@ -15,7 +17,7 @@ import plotly.express as px
 import pymupdf
 import requests
 import streamlit as st
-from langfuse.openai import OpenAI
+from langfuse.openai import openai
 from openai.types.chat import (
     ChatCompletionContentPartImageParam,
 )
@@ -63,8 +65,8 @@ def load_from_disk_cache(key: str) -> Any:
         return None
 
 
-def get_openai_client() -> OpenAI:
-    return OpenAI()
+def get_openai_client() -> openai.OpenAI:
+    return openai.OpenAI()
 
 
 @lru_cache(maxsize=100)
@@ -125,7 +127,12 @@ def image_to_base64(image: bytes) -> str:
     return base64.b64encode(image).decode()
 
 
-def extract_data_from_pdf_uncached(pdf_content: bytes, pages_per_batch: int = 2) -> list[OrderItem]:
+def extract_data_from_pdf_uncached(
+    pdf_content: bytes,
+    order_id: str,
+    session_id: str,
+    pages_per_batch: int = 2,
+) -> list[OrderItem]:
     pdf = pymupdf.Document(stream=pdf_content)
     matrix = pymupdf.Matrix(90 / 72, 90 / 72)
 
@@ -181,7 +188,9 @@ def extract_data_from_pdf_uncached(pdf_content: bytes, pages_per_batch: int = 2)
             model="gpt-4o",
             response_format={"type": "json_object"},
             max_tokens=4000,
-        )
+            metadata={"order_id": order_id},
+            session_id=session_id,
+        )  # type: ignore
 
         if completion.choices and completion.choices[0].message.content:
             content = completion.choices[0].message.content
@@ -214,12 +223,12 @@ def extract_data_from_pdf_uncached(pdf_content: bytes, pages_per_batch: int = 2)
     return all_items
 
 
-def process_single_order(order: Order, invoice_content: bytes) -> list[OrderItem]:
+def process_single_order(order: Order, invoice_content: bytes, session_id: str) -> list[OrderItem]:
     cache_key = get_cache_key(order["orderId"], invoice_content)
     invoice_items = extract_data_from_pdf_cached(cache_key)
 
     if invoice_items is None:
-        invoice_items = extract_data_from_pdf_uncached(invoice_content)
+        invoice_items = extract_data_from_pdf_uncached(invoice_content, order["orderId"], session_id)
         save_to_disk_cache(cache_key, invoice_items)
 
     def clean_numeric(value: str | float) -> float:
@@ -236,6 +245,7 @@ def process_single_order(order: Order, invoice_content: bytes) -> list[OrderItem
             return float(match.group(1)) if match else 0.0
         else:
             return value
+
     return [
         {
             "order_id": order["orderId"],
@@ -276,9 +286,11 @@ def process_orders(
 
     total_orders = len(orders)
 
+    session_id = st.session_state.session_id
+
     with ThreadPoolExecutor(max_workers=10) as executor:
         future_to_order = {
-            executor.submit(process_single_order, order, all_order_invoices[order["orderId"]]): order
+            executor.submit(process_single_order, order, all_order_invoices[order["orderId"]], session_id): order
             for order in orders
         }
 
@@ -525,6 +537,10 @@ def main():  # noqa: PLR0915
     st.set_page_config(page_title="Woolies Order Analyser", layout="wide", page_icon="🛒")
     st.title("🛒 Woolies Order Analyser")
     st.write("Welcome to the Woolies Order Analyser!")
+
+    # Set a session ID
+    if "session_id" not in st.session_state:
+        st.session_state.session_id = str(uuid.uuid4())
 
     cookie = st.text_input(
         "Put your cookie in here 🍪",
