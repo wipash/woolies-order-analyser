@@ -73,20 +73,33 @@ def extract_data_from_pdf_cached(cache_key: str) -> list[OrderItem]:
 
 @st.cache_data(ttl=600)
 def get_all_orders(cookie: str) -> list[Order]:
+    all_orders = []
+    page = 1
+    total_items = None
+
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:129.0) Gecko/20100101 Firefox/129.0",
-            "X-Requested-With": "OnlineShopping.WebApp",
-            "Cookie": cookie,
-        }
-        url = "https://www.woolworths.co.nz/api/v1/shoppers/my/past-orders"
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        return data["items"]
+        while total_items is None or len(all_orders) < total_items:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:129.0) Gecko/20100101 Firefox/129.0",
+                "X-Requested-With": "OnlineShopping.WebApp",
+                "Cookie": cookie,
+            }
+            url = "https://www.woolworths.co.nz/api/v1/shoppers/my/past-orders"
+            params = {"dateFilter": "year-2024", "page": page}
+            response = requests.get(url, params=params, headers=headers, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+
+            if total_items is None:
+                total_items = data["totalItems"]
+
+            all_orders.extend(data["items"])
+            page += 1
     except requests.RequestException as e:
         st.error(f"Failed to fetch orders: {e!s}")
-        return []
+        return all_orders
+    else:
+        return all_orders
 
 
 @st.cache_data(ttl=600)
