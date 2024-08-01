@@ -160,6 +160,9 @@ def extract_data_from_pdf_uncached(pdf_content: bytes, pages_per_batch: int = 2)
                     }
                 ]
             }
+
+            Only include order items, not other information like store details, delivery, or payment information (eg Direct Debit lines).
+
             """,  # noqa: E501
         }
 
@@ -219,15 +222,29 @@ def process_single_order(order: Order, invoice_content: bytes) -> list[OrderItem
         invoice_items = extract_data_from_pdf_uncached(invoice_content)
         save_to_disk_cache(cache_key, invoice_items)
 
+    def clean_numeric(value: str | float) -> float:
+        # Remove currency symbols and whitespace, then convert to float
+        if isinstance(value, str):
+            return float(re.sub(r"[^\d.]", "", value))
+        else:
+            return value
+
+    def parse_quantity(value: str | float) -> float:
+        # Extract the numeric part from strings like "1 ea"
+        if isinstance(value, str):
+            match = re.match(r"(\d+(?:\.\d+)?)", value)
+            return float(match.group(1)) if match else 0.0
+        else:
+            return value
     return [
         {
             "order_id": order["orderId"],
             "date": order["orderDate"],
-            "category": item["cat"],
-            "name": item["desc"],
-            "total_price": float(item["amount"]) if item["amount"] else 0.0,
-            "quantity": float(item["sup"]) if item["sup"] else 0.0,
-            "unit_price": float(item["price"]) if item["price"] else 0.0,
+            "category": item["cat"] if item["cat"] else "Unknown",
+            "name": item["desc"] if item["desc"] else "Unknown",
+            "total_price": clean_numeric(item["amount"]) if item.get("amount") else 0.0,
+            "quantity": parse_quantity(item["sup"]) if item.get("sup") else 0.0,
+            "unit_price": clean_numeric(item["price"]) if item.get("price") else 0.0,
         }
         for item in invoice_items
     ]
