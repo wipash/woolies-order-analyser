@@ -61,7 +61,6 @@ def load_from_disk_cache(key: str) -> Any:
         return None
 
 
-@st.cache_resource(ttl=600)
 def get_openai_client() -> OpenAI:
     return OpenAI()
 
